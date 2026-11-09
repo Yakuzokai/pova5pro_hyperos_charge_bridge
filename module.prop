@@ -1,0 +1,6 @@
+id=pova5pro_hyperos_charge_bridge
+name=TECNO POVA 5 Pro - HyperOS Charging Bridge
+version=1.0.0
+versionCode=100
+author=Kagiyama & Yakuzo
+description=Automated charging bridge for TECNO POVA 5 Pro 5G (LH8n) on HyperOS. Monitors physical MediaTek/Transsion charging ADCs, detects 68W Ultra Charge, 33W Super Charge, and 18W Fast Charge, and drives HyperIsland and Lockscreen Turbo animations automatically.

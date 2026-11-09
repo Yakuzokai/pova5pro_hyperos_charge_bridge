@@ -1,0 +1,4 @@
+# Build artifacts
+*.zip
+*.log
+.DS_Store

@@ -1,0 +1,17 @@
+#!/sbin/sh
+OUTFD=$2
+ZIPFILE=$3
+
+ui_print() {
+  echo "$1"
+}
+
+MODPATH="/data/adb/modules/pova5pro_hyperos_charge_bridge"
+mkdir -p "$MODPATH"
+unzip -o "$ZIPFILE" -x "META-INF/*" -d "$MODPATH"
+
+if [ -f "$MODPATH/customize.sh" ]; then
+    . "$MODPATH/customize.sh"
+fi
+
+exit 0
