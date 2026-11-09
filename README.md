@@ -97,3 +97,4 @@ adb shell "/data/adb/ksud module install /sdcard/Download/LH8n_HyperOS_Charging_
 ## 👤 Credits & Authors
 - **Kagiyama & Yakuzo**
 - Ported for TECNO POVA 5 Pro 5G (LH8n) on HyperOS
+"# pova5pro_hyperos_charge_bridge" 
