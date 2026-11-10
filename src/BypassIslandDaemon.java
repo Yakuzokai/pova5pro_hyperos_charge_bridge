@@ -323,8 +323,8 @@ public class BypassIslandDaemon {
         return true;
     }
 
-    private static void updateChargingBridge(String status, int vbus) {
-        if (!"Charging".equalsIgnoreCase(status)) {
+    private static void updateChargingBridge(boolean plugged, String status, int vbus) {
+        if (!plugged || !"Charging".equalsIgnoreCase(status)) {
             if (sLastChargeType != 0) {
                 sendQuickChargeBroadcast(0, 0);
                 sLastChargeType = 0;
@@ -341,18 +341,28 @@ public class BypassIslandDaemon {
 
         int currType;
         int currPower;
-        if ("P5".equals(mode) || adapter >= 60 || slave == 1) {
+
+        // Verified live telemetry:
+        // 68W Ultra Charge: Dual-phase direct charging (slave charger online) or PE5 mode ("P5"),
+        // or verified high-voltage contract (vbus >= 8500 mV) with 60W+ adapter.
+        if (slave == 1 || "P5".equals(mode) || (adapter >= 60 && vbus >= 8500)) {
             currType = 4;
             currPower = 68;
-        } else if (adapter >= 30 || (!pd.isEmpty() && !"normal".equals(pd) && vbus >= 9000)) {
+        // 33W Super Charge: Verified >= 8500 mV bus contract with 30W+ adapter or PPS PD contract
+        } else if (vbus >= 8500 && (adapter >= 30 || (!pd.isEmpty() && !"normal".equals(pd)))) {
             currType = 4;
             currPower = 33;
-        } else if (vbus >= 8000 || "PD".equals(pd)) {
+        // 18W Fast Charge: Verified >= 7500 mV bus contract or verified PD negotiation >= 4500 mV
+        } else if (vbus >= 7500 || ("PD".equals(pd) && vbus >= 4500)) {
             currType = 1;
             currPower = 18;
-        } else {
+        // 10W Standard Charge: Verified baseline 5V charging rail
+        } else if (vbus >= 4000) {
             currType = 0;
             currPower = 10;
+        } else {
+            currType = 0;
+            currPower = 0;
         }
 
         if (currType != sLastChargeType || currPower != sLastChargePower) {
@@ -424,7 +434,7 @@ public class BypassIslandDaemon {
                 boolean plugged = isPluggedIn(status, vbus);
 
                 // 1. Unified zero-fork HyperOS Fast Charging & SOC Decimal Bridge
-                updateChargingBridge(status, vbus);
+                updateChargingBridge(plugged, status, vbus);
 
                 int rawBypass = parseIntOr(readFileTrim(NODE_BYPASS), 0);
                 int capacity = plugged ? parseIntOr(readFileTrim(NODE_CAPACITY), 100) : 100;
