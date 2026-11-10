@@ -1,0 +1,53 @@
+#!/system/bin/sh
+NODE="/sys/devices/platform/charger/bypass_charger"
+
+case "$1" in
+    on|enable|1)
+        echo 110 > "$NODE"
+        cmd settings put secure key_security_side_road_charge_state 1 2>/dev/null
+        echo "Bypass Charging: ENABLED"
+        ;;
+    off|disable|0)
+        echo 0 > "$NODE"
+        cmd settings put secure key_security_side_road_charge_state 0 2>/dev/null
+        echo "Bypass Charging: DISABLED"
+        ;;
+    toggle)
+        CURRENT=$(cat "$NODE" 2>/dev/null)
+        if [ "$CURRENT" = "0" ] || [ -z "$CURRENT" ]; then
+            echo 110 > "$NODE"
+            cmd settings put secure key_security_side_road_charge_state 1 2>/dev/null
+            echo "Bypass Charging: ENABLED"
+        else
+            echo 0 > "$NODE"
+            cmd settings put secure key_security_side_road_charge_state 0 2>/dev/null
+            echo "Bypass Charging: DISABLED"
+        fi
+        ;;
+    status|*)
+        CURRENT=$(cat "$NODE" 2>/dev/null)
+        STATUS=$(cat /sys/class/power_supply/battery/status 2>/dev/null)
+        LEVEL=$(cat /sys/class/power_supply/battery/capacity 2>/dev/null)
+        IBAT=$(cat /sys/devices/platform/charger/ADC_Charging_Current 2>/dev/null)
+        CURR_UA=$(cat /sys/class/power_supply/battery/current_now 2>/dev/null)
+        VBUS=$(cat /sys/devices/platform/charger/ADC_Charger_Voltage 2>/dev/null)
+        PERF=$(cmd settings get system POWER_PERFORMANCE_MODE_OPEN 2>/dev/null)
+        HB=$(getprop debug.pova.bypass_daemon)
+        echo "=========================================="
+        echo " TECNO POVA 5 Pro Bypass Status (Kagiyama)"
+        echo "=========================================="
+        if [ "$CURRENT" = "1" ] || [ "$CURRENT" = "110" ]; then
+            echo "Bypass Mode   : ACTIVE (Hardware NVDC Bypass)"
+            echo "HyperIsland   : Purple Capsule (10s Auto-Hide)"
+        else
+            echo "Bypass Mode   : INACTIVE (Normal Charging)"
+            echo "HyperIsland   : Dismissed"
+        fi
+        echo "Perf Mode     : $( [ "$PERF" = "1" ] && echo "ON (Ultimate Mode)" || echo "OFF (Balanced)" )"
+        echo "Battery Level : ${LEVEL}% (${STATUS})"
+        echo "VBUS / IBAT   : ${VBUS} mV / ${IBAT} mA (${CURR_UA} uA)"
+        echo "Daemon Heartbt: ${HB:-inactive}"
+        echo "=========================================="
+        echo "Usage: bypass_charge {on|off|toggle|status}"
+        ;;
+esac

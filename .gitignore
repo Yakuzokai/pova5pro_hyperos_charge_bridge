@@ -1,4 +1,7 @@
 # Build artifacts
 *.zip
 *.log
+*.idsig
+*.pyc
+__pycache__/
 .DS_Store

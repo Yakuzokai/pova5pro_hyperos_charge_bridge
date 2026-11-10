@@ -1,0 +1,9 @@
+# ==============================================================================
+# TECNO POVA 5 Pro 5G (LH8n) - HyperOS Charging Bridge & Bypass Configuration
+# ==============================================================================
+
+# Expose Bypass Charging toggle in GameSpace / Game Turbo sidebar toolbox
+persist.vendor.smart.bypass.plus=true
+
+# Expose native Performance / Ultimate Mode in HyperOS Battery Settings & Control Center
+persist.sys.power_mode_support=true

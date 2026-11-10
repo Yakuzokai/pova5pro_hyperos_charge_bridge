@@ -12,7 +12,8 @@ ANIM_COUNT=0
 sleep 5
 
 while true; do
-    STATUS=$(cat /sys/class/power_supply/battery/status 2>/dev/null)
+    STATUS=""
+    [ -r /sys/class/power_supply/battery/status ] && IFS= read -r STATUS < /sys/class/power_supply/battery/status 2>/dev/null
     
     if [ "$STATUS" != "Charging" ]; then
         if [ "$LAST_TYPE" -ne 0 ]; then
@@ -24,16 +25,17 @@ while true; do
             LAST_POWER=0
             ANIM_COUNT=0
         fi
-        sleep 2
+        sleep 2.5
         continue
     fi
 
-    # Read physical hardware nodes verified in mtk_charger_framework.ko
-    MODE=$(cat /sys/devices/platform/charger/Charging_mode 2>/dev/null)
-    ADAPTER=$(cat /sys/devices/platform/charger/adapter_capacity 2>/dev/null)
-    VBUS=$(cat /sys/devices/platform/charger/ADC_Charger_Voltage 2>/dev/null)
-    PD=$(cat /sys/devices/platform/charger/pd_type 2>/dev/null)
-    SLAVE=$(cat /sys/class/power_supply/mtk-slave-charger/online 2>/dev/null)
+    # Read physical hardware nodes cleanly via shell builtin (zero fork overhead)
+    MODE=""; ADAPTER=""; VBUS=""; PD=""; SLAVE=""
+    [ -r /sys/devices/platform/charger/Charging_mode ] && IFS= read -r MODE < /sys/devices/platform/charger/Charging_mode 2>/dev/null
+    [ -r /sys/devices/platform/charger/adapter_capacity ] && IFS= read -r ADAPTER < /sys/devices/platform/charger/adapter_capacity 2>/dev/null
+    [ -r /sys/devices/platform/charger/ADC_Charger_Voltage ] && IFS= read -r VBUS < /sys/devices/platform/charger/ADC_Charger_Voltage 2>/dev/null
+    [ -r /sys/devices/platform/charger/pd_type ] && IFS= read -r PD < /sys/devices/platform/charger/pd_type 2>/dev/null
+    [ -r /sys/class/power_supply/mtk-slave-charger/online ] && IFS= read -r SLAVE < /sys/class/power_supply/mtk-slave-charger/online 2>/dev/null
 
     # Sanitize inputs
     [ -z "$ADAPTER" ] && ADAPTER=0
