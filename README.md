@@ -17,7 +17,7 @@ This module monitors physical MediaTek PMIC and charging algorithm nodes, dispat
 
 ---
 
-## 🚀 Features (v1.3.1)
+## 🚀 Features (v1.3.2)
 
 ### 1. Dynamic Fast Charging Tiers
 - **68W Ultra Charge Tier:** Detects MediaTek Pump Express 5.0 (`P5`) / USB-PD PPS dual-phase direct charging; triggers **"68W MAX"** Lockscreen & HyperIsland animations plus `ACTION_SOC_DECIMAL`.
@@ -55,16 +55,17 @@ This module monitors physical MediaTek PMIC and charging algorithm nodes, dispat
 │       ├── update-binary          # Module installer binary
 │       └── updater-script         # Magisk/KernelSU updater directive
 ├── BypassControl.apk              # Bundled companion app (Health Check, Debug Mode & QS Tile)
-├── module.prop                    # Module metadata (v1.3.1, author=Kagiyama)
+├── module.prop                    # Module metadata (v1.3.2, author=Kagiyama)
 ├── system.prop                    # Enables GameTurbo bypass & HyperOS Performance Mode
-├── customize.sh                   # Install-time permissions, APK install & daemon launch
-├── service.sh                     # Early-boot property/tile ensure & daemon launcher
-├── charging_bridge.sh             # Background charging speed detection daemon
-├── bypass_island.dex              # Compiled Android DEX daemon (HyperIsland + GameTurbo sync)
+├── customize.sh                   # Install-time permissions, APK/CLI install & daemon launch
+├── service.sh                     # Early-boot property/tile/CLI ensure & daemon launcher
+├── uninstall.sh                   # Removes /data/adb/ksu/bin/bypass_charge symlink on uninstall
+├── bypass_island.dex              # Unified zero-fork DEX daemon (Charging tiers + HyperIsland + GameTurbo sync)
+├── src/BypassIslandDaemon.java    # Source for bypass_island.dex
 ├── action.sh                      # KernelSU / Magisk 1-tap Action button (Toggle & telemetry)
 ├── system/
 │   └── bin/
-│       └── bypass_charge          # CLI command for terminal / scripts
+│       └── bypass_charge          # CLI command (linked to /data/adb/ksu/bin/bypass_charge)
 ├── build.py                       # Python script to package the flashable module zip
 ├── .gitignore
 └── README.md
@@ -78,21 +79,21 @@ Run the build script from this directory:
 ```bash
 python build.py
 ```
-This generates `LH8n_HyperOS_Charging_Bridge_Module_v1.3.1.zip`.
+This generates `LH8n_HyperOS_Charging_Bridge_Module_v1.3.2.zip`.
 
 ---
 
 ## 📲 Installation
 
 ### Via KernelSU / Magisk App:
-1. Copy `LH8n_HyperOS_Charging_Bridge_Module_v1.3.1.zip` to your phone.
+1. Copy `LH8n_HyperOS_Charging_Bridge_Module_v1.3.2.zip` to your phone.
 2. Open **KernelSU** or **Magisk** app $\to$ **Modules** $\to$ **Install from storage**.
 3. Select the zip file and reboot (`Bypass Control` app is installed automatically!).
 
 ### Via ADB CLI:
 ```bash
-adb push LH8n_HyperOS_Charging_Bridge_Module_v1.3.1.zip /sdcard/Download/
-adb shell "su -c '/data/adb/ksud module install /sdcard/Download/LH8n_HyperOS_Charging_Bridge_Module_v1.3.1.zip'"
+adb push LH8n_HyperOS_Charging_Bridge_Module_v1.3.2.zip /sdcard/Download/
+adb shell "su -c '/data/adb/ksud module install /sdcard/Download/LH8n_HyperOS_Charging_Bridge_Module_v1.3.2.zip'"
 ```
 
 ---

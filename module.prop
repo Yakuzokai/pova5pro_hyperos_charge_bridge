@@ -1,6 +1,6 @@
 id=pova5pro_hyperos_charge_bridge
 name=TECNO POVA 5 Pro - HyperOS Charging Bridge
-version=1.3.1
-versionCode=131
+version=1.3.2
+versionCode=132
 author=Kagiyama
 description=Automated charging bridge for TECNO POVA 5 Pro 5G (LH8n) on HyperOS. Monitors physical MediaTek/Transsion charging ADCs, drives 68W/33W/18W HyperIsland animations, provides 10s auto-hiding purple Bypass Charging HyperIsland capsule, exposes GameSpace bypass toggle, unlocks native HyperOS Performance/Ultimate Mode in Battery Settings & Control Center, and bundles the Bypass Control companion app with Debug Mode.

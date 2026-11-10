@@ -2,18 +2,18 @@ import os
 import zipfile
 
 MODULE_ID = "pova5pro_hyperos_charge_bridge"
-ZIP_NAME = "LH8n_HyperOS_Charging_Bridge_Module_v1.3.1.zip"
+ZIP_NAME = "LH8n_HyperOS_Charging_Bridge_Module_v1.3.2.zip"
 
 def build():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     os.chdir(script_dir)
-    exclude = {".git", ".gitignore", ".gitattributes", "README.md", "build.py", ZIP_NAME}
+    exclude = {".git", ".gitignore", ".gitattributes", "README.md", "build.py", "src", ZIP_NAME}
 
     with zipfile.ZipFile(ZIP_NAME, "w", compression=zipfile.ZIP_DEFLATED) as z:
         for root, dirs, files in os.walk("."):
             dirs[:] = [d for d in dirs if d not in exclude and not d.startswith(".")]
             for f in files:
-                if f in exclude or f.startswith(".") or f.endswith((".zip", ".idsig", ".log")):
+                if f in exclude or f.startswith(".") or f.endswith((".zip", ".idsig", ".log", ".java", ".class")):
                     continue
                 full_path = os.path.join(root, f)
                 rel_path = os.path.relpath(full_path, ".").replace("\\", "/")

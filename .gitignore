@@ -3,5 +3,6 @@
 *.log
 *.idsig
 *.pyc
+*.class
 __pycache__/
 .DS_Store
