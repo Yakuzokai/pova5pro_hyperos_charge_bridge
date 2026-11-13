@@ -4,7 +4,7 @@ SKIPUNZIP=0
 ui_print "***********************************************"
 ui_print "*   TECNO POVA 5 Pro 5G (LH8n) Charging Bridge *"
 ui_print "*      Unified Binder Bridge + Bypass App      *"
-ui_print "*             v1.3.2  (By Kagiyama)            *"
+ui_print "*             v1.3.2  (By Yakuzokai)            *"
 ui_print "***********************************************"
 
 ui_print "- Setting executable permissions..."
@@ -48,5 +48,5 @@ fi
 
 ui_print "- Unified Charging Bridge & Bypass Island active!"
 ui_print "***********************************************"
-ui_print "*     Installation complete! By Kagiyama      *"
+ui_print "*     Installation complete! By Yakuzokai      *"
 ui_print "***********************************************"

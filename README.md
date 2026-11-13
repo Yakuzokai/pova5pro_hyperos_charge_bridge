@@ -55,7 +55,7 @@ This module monitors physical MediaTek PMIC and charging algorithm nodes, dispat
 │       ├── update-binary          # Module installer binary
 │       └── updater-script         # Magisk/KernelSU updater directive
 ├── BypassControl.apk              # Bundled companion app (Health Check, Debug Mode & QS Tile)
-├── module.prop                    # Module metadata (v1.3.2, author=Kagiyama)
+├── module.prop                    # Module metadata (v1.3.2, author=Yakuzokai)
 ├── system.prop                    # Enables GameTurbo bypass & HyperOS Performance Mode
 ├── customize.sh                   # Install-time permissions, APK/CLI install & daemon launch
 ├── service.sh                     # Early-boot property/tile/CLI ensure & daemon launcher
@@ -124,4 +124,4 @@ adb shell "su -c '/data/adb/ksud module install /sdcard/Download/LH8n_HyperOS_Ch
 ---
 
 ## 👤 Credits & Author
-- **Kagiyama**
+- **Yakuzokai**
