@@ -20,11 +20,9 @@ public class BypassIslandDaemon {
     private static final String EXTRA_QUICK_CHARGE_TYPE = "miui.intent.extra.quick_charge_type";
     private static final String EXTRA_POWER_MAX = "miui.intent.extra.POWER_MAX";
     private static final String EXTRA_CAR_CHARGE = "miui.intent.extra.CAR_CHARGE";
-    private static final String ACTION_SOC_DECIMAL = "miui.intent.action.ACTION_SOC_DECIMAL";
-    private static final String EXTRA_SOC_DECIMAL = "miui.intent.extra.soc_decimal";
-    private static final String EXTRA_SOC_DECIMAL_RATE = "miui.intent.extra.soc_decimal_rate";
 
     private static final String NODE_BYPASS = "/sys/devices/platform/charger/bypass_charger";
+    private static final String NODE_POWER_PATH = "/proc/mtk_battery_cmd/en_power_path";
     private static final String NODE_BATTERY_STATUS = "/sys/class/power_supply/battery/status";
     private static final String NODE_CHARGER_TYPE = "/sys/devices/platform/charger/Charger_Type";
     private static final String NODE_CHARGING_MODE = "/sys/devices/platform/charger/Charging_mode";
@@ -35,10 +33,18 @@ public class BypassIslandDaemon {
     private static final String NODE_TEMP = "/sys/class/power_supply/battery/temp";
     private static final String NODE_VBUS = "/sys/devices/platform/charger/ADC_Charger_Voltage";
 
+    public static final int MIN_SAFE_VBUS_MV = 4500;
+    public static final int MIN_BYPASS_ADAPTER_W = 18;
+    public static final int MIN_BYPASS_VBUS_MV = 7500;
+
     private static final String SETTING_SECURE_SIDE_ROAD = "key_security_side_road_charge_state";
 
     // Electric purple (#A855F7): 0xFFA855F7 -> signed int -5745161
     private static final int COLOR_PURPLE = -5745161;
+    // Warning Amber (#FF9800): 0xFFFF9800 -> signed int -26624
+    private static final int COLOR_AMBER = -26624;
+    // Alert Red (#EF4444): 0xFFEF4444 -> signed int -1096636
+    private static final int COLOR_RED = -1096636;
 
     private static Object sStatusBarService;
     private static Method sSetStatus;
@@ -67,7 +73,9 @@ public class BypassIslandDaemon {
 
     private static int sLastChargeType = -1;
     private static int sLastChargePower = -1;
-    private static int sDecimalAnimCount = 0;
+    private static int sPendingType = -1;
+    private static int sPendingPower = -1;
+    private static int sPendingCount = 0;
 
     private static void updateHeartbeat() {
         long nowSec = System.currentTimeMillis() / 1000L;
@@ -127,37 +135,6 @@ public class BypassIslandDaemon {
     }
 
     private static void sendBroadcastDirect(Intent intent) {
-        initActivityManager();
-        if (sActivityManager != null) {
-            try {
-                if (sBroadcastWithFeature != null) {
-                    int rc = (Integer) sBroadcastWithFeature.invoke(
-                        sActivityManager,
-                        null, null, intent, null,
-                        null, -1, null, null,
-                        null, null, null, -1,
-                        null, false, false, -1
-                    );
-                    if (rc >= 0) return;
-                }
-                if (sBroadcastLegacy != null) {
-                    int rc = (Integer) sBroadcastLegacy.invoke(
-                        sActivityManager,
-                        null, intent, null,
-                        null, -1, null, null,
-                        null, -1, null, false, false, -1
-                    );
-                    if (rc >= 0) return;
-                }
-            } catch (Throwable t) {
-                Throwable c = t.getCause() != null ? t.getCause() : t;
-                System.err.println("[BypassDaemon] broadcastIntent Binder error (" + c + "), falling back to am");
-                sActivityManager = null;
-                sBroadcastWithFeature = null;
-                sBroadcastLegacy = null;
-            }
-        }
-        // Fallback only if Binder invocation failed unexpectedly
         try {
             StringBuilder cmd = new StringBuilder("am broadcast -a ");
             cmd.append(intent.getAction());
@@ -170,8 +147,12 @@ public class BypassIslandDaemon {
                     }
                 }
             }
-            Runtime.getRuntime().exec(new String[]{"sh", "-c", cmd.toString()}).waitFor();
-        } catch (Throwable ignored) {}
+            cmd.append(" -f 0x01000000");
+            Runtime.getRuntime().exec(new String[]{"sh", "-c", cmd.toString()});
+            android.util.Log.i("BypassDaemon", "Broadcast sent: " + cmd.toString());
+        } catch (Throwable t) {
+            android.util.Log.e("BypassDaemon", "Broadcast dispatch error: " + t.getMessage());
+        }
     }
 
     private static void sendQuickChargeBroadcast(int type, int watts) {
@@ -179,13 +160,6 @@ public class BypassIslandDaemon {
         intent.putExtra(EXTRA_QUICK_CHARGE_TYPE, type);
         intent.putExtra(EXTRA_POWER_MAX, watts);
         intent.putExtra(EXTRA_CAR_CHARGE, 0);
-        sendBroadcastDirect(intent);
-    }
-
-    private static void sendSocDecimalBroadcast(int decimal, int rate) {
-        Intent intent = new Intent(ACTION_SOC_DECIMAL);
-        intent.putExtra(EXTRA_SOC_DECIMAL, decimal);
-        intent.putExtra(EXTRA_SOC_DECIMAL_RATE, rate);
         sendBroadcastDirect(intent);
     }
 
@@ -317,20 +291,22 @@ public class BypassIslandDaemon {
             return false;
         }
         int chgType = parseIntOr(readFileTrim(NODE_CHARGER_TYPE), -1);
-        if (chgType == 0 && vbus < 4000 && !"Charging".equalsIgnoreCase(status) && !"Not charging".equalsIgnoreCase(status)) {
+        if (chgType == 0 && vbus < 4000 && !"Charging".equalsIgnoreCase(status) && !"Full".equalsIgnoreCase(status) && !"Not charging".equalsIgnoreCase(status)) {
             return false;
         }
         return true;
     }
 
     private static void updateChargingBridge(boolean plugged, String status, int vbus) {
-        if (!plugged || !"Charging".equalsIgnoreCase(status)) {
-            if (sLastChargeType != 0) {
+        if (!plugged || "Discharging".equalsIgnoreCase(status)) {
+            if (sLastChargeType != 0 || sLastChargePower != 0) {
                 sendQuickChargeBroadcast(0, 0);
                 sLastChargeType = 0;
                 sLastChargePower = 0;
-                sDecimalAnimCount = 0;
             }
+            sPendingType = -1;
+            sPendingPower = -1;
+            sPendingCount = 0;
             return;
         }
 
@@ -339,43 +315,137 @@ public class BypassIslandDaemon {
         String pd = readFileTrim(NODE_PD_TYPE);
         int slave = parseIntOr(readFileTrim(NODE_SLAVE_ONLINE), 0);
 
-        int currType;
-        int currPower;
+        int rawType;
+        int rawPower;
 
-        // Verified live telemetry:
-        // 68W Ultra Charge: Dual-phase direct charging (slave charger online) or PE5 mode ("P5"),
-        // or verified high-voltage contract (vbus >= 8500 mV) with 60W+ adapter.
-        if (slave == 1 || "P5".equals(mode) || (adapter >= 60 && vbus >= 8500)) {
-            currType = 4;
-            currPower = 68;
-        // 33W Super Charge: Verified >= 8500 mV bus contract with 30W+ adapter or PPS PD contract
-        } else if (vbus >= 8500 && (adapter >= 30 || (!pd.isEmpty() && !"normal".equals(pd)))) {
-            currType = 4;
-            currPower = 33;
-        // 18W Fast Charge: Verified >= 7500 mV bus contract or verified PD negotiation >= 4500 mV
-        } else if (vbus >= 7500 || ("PD".equals(pd) && vbus >= 4500)) {
-            currType = 1;
-            currPower = 18;
-        // 10W Standard Charge: Verified baseline 5V charging rail
+        // Verified HyperOS Charging Tier Architecture for TECNO LH8n:
+        // 68W Ultra Charge: Dual-phase direct charge / PE5 mode / adapter capacity >= 60W
+        if ("P5".equalsIgnoreCase(mode) || slave == 1 || adapter >= 60 || (adapter >= 45 && vbus >= 8500)) {
+            rawType = 4; // Strong Super / Turbo (ChargeUtils chargeSpeed = 3, 68W MAX)
+            rawPower = 68;
+        // 33W Super Charge: 30W+ adapter capacity OR high-voltage PD contract
+        } else if (adapter >= 30 || (vbus >= 8500 && pd != null && pd.contains("PD"))) {
+            rawType = 2; // Super Charge (ChargeUtils chargeSpeed = 2, 33W MAX)
+            rawPower = 33;
+        // 18W Fast Charge: 18W+ adapter OR high-voltage VBUS (>= 7500 mV)
+        } else if (adapter >= 18 || vbus >= 7500) {
+            rawType = 1; // Rapid / Fast Charge (ChargeUtils chargeSpeed = 1, 18W Fast)
+            rawPower = 18;
+        // Standard 10W / 5V baseline: Any 5V connection (vbus >= 4000 mV)
         } else if (vbus >= 4000) {
-            currType = 0;
-            currPower = 10;
+            rawType = 0; // Normal Charge (ChargeUtils chargeSpeed = 0, 10W)
+            rawPower = 10;
         } else {
-            currType = 0;
-            currPower = 0;
+            rawType = 0;
+            rawPower = 0;
         }
 
-        if (currType != sLastChargeType || currPower != sLastChargePower) {
-            sendQuickChargeBroadcast(currType, currPower);
-            sLastChargeType = currType;
-            sLastChargePower = currPower;
-            sDecimalAnimCount = 16;
+        // Hysteresis & Debounce Filter:
+        // 1. Demoting (e.g. unplug or voltage drop below 4V) applies immediately.
+        // 2. Initial plug-in (sLastChargePower <= 0) promotes IMMEDIATELY so SystemUI receives
+        //    68W/33W/18W before the animation latch window closes.
+        // 3. Promoting during ongoing charge requires 2 consecutive matching samples.
+        int targetType = sLastChargeType;
+        int targetPower = sLastChargePower;
+
+        if (rawType < sLastChargeType || (rawPower <= 10 && sLastChargePower > 10)) {
+            targetType = rawType;
+            targetPower = rawPower;
+            sPendingType = -1;
+            sPendingPower = -1;
+            sPendingCount = 0;
+        } else if (sLastChargePower <= 0) {
+            // Instant promotion on fresh cable insertion
+            targetType = rawType;
+            targetPower = rawPower;
+            sPendingType = -1;
+            sPendingPower = -1;
+            sPendingCount = 0;
+        } else if (rawType != sLastChargeType || rawPower != sLastChargePower) {
+            if (rawType == sPendingType && rawPower == sPendingPower) {
+                sPendingCount++;
+                if (sPendingCount >= 2) {
+                    targetType = rawType;
+                    targetPower = rawPower;
+                    sPendingType = -1;
+                    sPendingPower = -1;
+                    sPendingCount = 0;
+                }
+            } else {
+                sPendingType = rawType;
+                sPendingPower = rawPower;
+                sPendingCount = 1;
+            }
+        } else {
+            sPendingType = -1;
+            sPendingPower = -1;
+            sPendingCount = 0;
         }
 
-        if (currType == 4 && sDecimalAnimCount > 0) {
-            int decimal = Math.min(98, (17 - sDecimalAnimCount) * 6);
-            sendSocDecimalBroadcast(decimal, 10);
-            sDecimalAnimCount--;
+        if (targetType != sLastChargeType || targetPower != sLastChargePower) {
+            sendQuickChargeBroadcast(targetType, targetPower);
+            sLastChargeType = targetType;
+            sLastChargePower = targetPower;
+
+            // Only trigger HyperIsland for confirmed Fast (18W), Super (33W), or Ultra (68W) tiers
+            if (targetPower >= 18) {
+                int cap = parseIntOr(readFileTrim(NODE_CAPACITY), 0);
+                showChargeIsland(targetPower, cap);
+            }
+        }
+    }
+
+    private static void showChargeIsland(int watts, int capacity) {
+        if (sStatusBarService == null || sSetStatus == null) return;
+        try {
+            String label = (watts >= 68) ? "68W Max" : (watts >= 30 ? "33W Max" : (watts >= 18 ? "Fast Charge" : "Charging"));
+            // Cyan for 68W (-16718081 = 0xFF00E5FF), Gold for 33W (-10752 = 0xFFFFD600), Green for 18W (-16718218 = 0xFF00E676)
+            int textColor = (watts >= 68) ? -16718081 : ((watts >= 30) ? -10752 : -16718218);
+            String iconParams = "\"iconParams\":{\"iconResName\":\"quick_charger_mode\",\"iconType\":0,\"iconFormat\":\"shader\",\"category\":\"raw\"}";
+
+            String json = "{"
+                + "\"left\":{\"textParams\":{\"text\":\"" + label + "\",\"turnAnim\":true}},"
+                + "\"right\":{\"textParams\":{\"text\":\"" + capacity + "%\",\"textColor\":" + textColor + "},"
+                + iconParams + "},"
+                + "\"glowEffect\":{\"enable\":true}"
+                + "}";
+
+            Bundle bundle = new Bundle();
+            bundle.putString("package_name", PKG_FALLBACK);
+            bundle.putString("notifyId", "charging_fast_island");
+            bundle.putString("strong_toast_category", CATEGORY);
+            bundle.putLong("duration", 6000L);
+            bundle.putString("island_param", json);
+
+            sSetStatus.invoke(sStatusBarService, 1, sToken, ACTION_NAME, bundle);
+            System.out.println("[BypassDaemon] showChargeIsland displayed: " + label + " (" + capacity + "%)");
+        } catch (Throwable t) {
+            System.err.println("[BypassDaemon] showChargeIsland error: " + t.getMessage());
+        }
+    }
+
+    private static void showAlertIsland(String leftText, String rightText, int color, long durationMs) {
+        if (sStatusBarService == null || sSetStatus == null) return;
+        try {
+            String iconParams = "\"iconParams\":{\"iconResName\":\"quick_charger_mode\",\"iconType\":0,\"iconFormat\":\"shader\",\"category\":\"raw\"}";
+            String json = "{"
+                + "\"left\":{\"textParams\":{\"text\":\"" + leftText + "\",\"turnAnim\":true}},"
+                + "\"right\":{\"textParams\":{\"text\":\"" + rightText + "\",\"textColor\":" + color + "},"
+                + iconParams + "},"
+                + "\"glowEffect\":{\"enable\":true}"
+                + "}";
+
+            Bundle bundle = new Bundle();
+            bundle.putString("package_name", PKG_FALLBACK);
+            bundle.putString("notifyId", "bypass_alert_island");
+            bundle.putString("strong_toast_category", CATEGORY);
+            bundle.putLong("duration", durationMs);
+            bundle.putString("island_param", json);
+
+            sSetStatus.invoke(sStatusBarService, 1, sToken, ACTION_NAME, bundle);
+            System.out.println("[BypassDaemon] showAlertIsland: " + leftText + " | " + rightText);
+        } catch (Throwable t) {
+            System.err.println("[BypassDaemon] showAlertIsland error: " + t.getMessage());
         }
     }
 
@@ -432,6 +502,7 @@ public class BypassIslandDaemon {
                 String status = readFileTrim(NODE_BATTERY_STATUS);
                 int vbus = parseIntOr(readFileTrim(NODE_VBUS), 0);
                 boolean plugged = isPluggedIn(status, vbus);
+                sleepMs = plugged ? 1000L : 2500L;
 
                 // 1. Unified zero-fork HyperOS Fast Charging & SOC Decimal Bridge
                 updateChargingBridge(plugged, status, vbus);
@@ -439,47 +510,88 @@ public class BypassIslandDaemon {
                 int rawBypass = parseIntOr(readFileTrim(NODE_BYPASS), 0);
                 int capacity = plugged ? parseIntOr(readFileTrim(NODE_CAPACITY), 100) : 100;
                 int temp = plugged ? parseIntOr(readFileTrim(NODE_TEMP), 300) : 300;
+                int adapter = parseIntOr(readFileTrim(NODE_ADAPTER_CAPACITY), 0);
+                boolean isFastCharger = (adapter >= MIN_BYPASS_ADAPTER_W || vbus >= MIN_BYPASS_VBUS_MV);
 
-                // Safety checks: disable bypass if unplugged, < 10% battery, or > 45.0 C
-                if ((!plugged || capacity < 10 || temp > 450) && rawBypass > 0) {
-                    System.out.println("[BypassDaemon] Safety trip (plugged=" + plugged + ", cap=" + capacity + ", temp=" + temp + "). Disabling bypass.");
-                    writeFile(NODE_BYPASS, "0");
-                    rawBypass = 0;
-                }
-
-                // 2. Synchronize Game Turbo toggle <-> hardware node (zero idle Binder calls when unplugged & reset)
-                if (plugged || sLastGameTurboSettingState != 0 || sLastBypassHardwareState != 0) {
-                    int gameTurboVal = parseIntOr(getSetting("secure", SETTING_SECURE_SIDE_ROAD), 0);
-
-                    if (gameTurboVal != sLastGameTurboSettingState) {
-                        if (gameTurboVal == 1 && rawBypass <= 0) {
-                            if (plugged && capacity >= 10 && temp <= 450) {
-                                System.out.println("[BypassDaemon] Game Turbo toggled ON. Enabling hardware bypass.");
-                                writeFile(NODE_BYPASS, "110");
-                                rawBypass = 110;
-                            } else {
-                                putSetting("secure", SETTING_SECURE_SIDE_ROAD, "0");
-                                gameTurboVal = 0;
-                            }
-                        } else if (gameTurboVal == 0 && rawBypass > 0) {
-                            System.out.println("[BypassDaemon] Game Turbo toggled OFF. Disabling hardware bypass.");
-                            writeFile(NODE_BYPASS, "0");
-                            rawBypass = 0;
-                        }
-                        sLastGameTurboSettingState = gameTurboVal;
-                    }
-
-                    int currentHwState = (rawBypass > 0 && plugged) ? 1 : 0;
-                    if (currentHwState != sLastBypassHardwareState) {
-                        if (gameTurboVal != currentHwState) {
-                            putSetting("secure", SETTING_SECURE_SIDE_ROAD, String.valueOf(currentHwState));
-                            sLastGameTurboSettingState = currentHwState;
-                        }
-                        sLastBypassHardwareState = currentHwState;
+                // 2. Dynamic Brownout Protection & Auto-Switching Watchdog
+                if (rawBypass > 0) {
+                    if (!plugged) {
+                        System.out.println("[BypassDaemon] Unplug detected while bypass active. Auto-switching to battery.");
+                        writeFile(NODE_BYPASS, "0");
+                        writeFile(NODE_POWER_PATH, "1");
+                        putSetting("secure", SETTING_SECURE_SIDE_ROAD, "0");
+                        rawBypass = 0;
+                    } else if (vbus < MIN_SAFE_VBUS_MV) {
+                        System.out.println("[BypassDaemon] EMERGENCY BROWNOUT TRIP: VBUS sagged to " + vbus
+                            + " mV (< " + MIN_SAFE_VBUS_MV + " mV). Reconnecting battery assist.");
+                        writeFile(NODE_BYPASS, "0");
+                        writeFile(NODE_POWER_PATH, "1");
+                        putSetting("secure", SETTING_SECURE_SIDE_ROAD, "0");
+                        showAlertIsland("Auto-Switch", "Sag < 4.5V", COLOR_AMBER, 5000L);
+                        rawBypass = 0;
+                    } else if (capacity < 10) {
+                        System.out.println("[BypassDaemon] Low battery (<10%). Auto-switching to standard charging.");
+                        writeFile(NODE_BYPASS, "0");
+                        writeFile(NODE_POWER_PATH, "1");
+                        putSetting("secure", SETTING_SECURE_SIDE_ROAD, "0");
+                        showAlertIsland("Low Battery", "Bypass Off", COLOR_AMBER, 4000L);
+                        rawBypass = 0;
+                    } else if (temp > 450) {
+                        System.out.println("[BypassDaemon] Thermal limit (>45.0C). Auto-switching to standard charging.");
+                        writeFile(NODE_BYPASS, "0");
+                        writeFile(NODE_POWER_PATH, "1");
+                        putSetting("secure", SETTING_SECURE_SIDE_ROAD, "0");
+                        showAlertIsland("Overheat", "Bypass Off", COLOR_RED, 4000L);
+                        rawBypass = 0;
                     }
                 }
 
-                // 3. Manage HyperIsland lifecycle (10s purple auto-hide capsule)
+                // 3. Synchronize Game Turbo toggle <-> hardware node with Weak Charger Gate
+                int gameTurboVal = parseIntOr(getSetting("secure", SETTING_SECURE_SIDE_ROAD), 0);
+
+                if (gameTurboVal != sLastGameTurboSettingState) {
+                    if (gameTurboVal == 1 && rawBypass <= 0) {
+                        if (!plugged) {
+                            System.out.println("[BypassDaemon] Bypass requested while unplugged. Rejected.");
+                            putSetting("secure", SETTING_SECURE_SIDE_ROAD, "0");
+                            gameTurboVal = 0;
+                        } else if (!isFastCharger && vbus < 7500) {
+                            System.out.println("[BypassDaemon] Bypass blocked: weak charger detected (adapter=" + adapter
+                                + "W, vbus=" + vbus + "mV). 18W+ required to prevent brownout.");
+                            putSetting("secure", SETTING_SECURE_SIDE_ROAD, "0");
+                            showAlertIsland("Weak Charger", "18W+ Req", COLOR_AMBER, 5000L);
+                            gameTurboVal = 0;
+                        } else if (capacity < 10 || temp > 450) {
+                            System.out.println("[BypassDaemon] Bypass blocked by safety (cap=" + capacity + ", temp=" + temp + ").");
+                            putSetting("secure", SETTING_SECURE_SIDE_ROAD, "0");
+                            showAlertIsland("Safety Block", capacity < 10 ? "Batt < 10%" : "Temp > 45C", COLOR_AMBER, 4000L);
+                            gameTurboVal = 0;
+                        } else {
+                            System.out.println("[BypassDaemon] Fast charger verified ("
+                                + (adapter > 0 ? adapter + "W" : (vbus / 1000.0) + "V")
+                                + "). Enabling hardware bypass.");
+                            writeFile(NODE_BYPASS, "110");
+                            rawBypass = 110;
+                        }
+                    } else if (gameTurboVal == 0 && rawBypass > 0) {
+                        System.out.println("[BypassDaemon] Game Turbo toggled OFF. Disabling hardware bypass & restoring power path.");
+                        writeFile(NODE_BYPASS, "0");
+                        writeFile(NODE_POWER_PATH, "1");
+                        rawBypass = 0;
+                    }
+                    sLastGameTurboSettingState = gameTurboVal;
+                }
+
+                int currentHwState = (rawBypass > 0 && plugged) ? 1 : 0;
+                if (currentHwState != sLastBypassHardwareState) {
+                    if (gameTurboVal != currentHwState) {
+                        putSetting("secure", SETTING_SECURE_SIDE_ROAD, String.valueOf(currentHwState));
+                        sLastGameTurboSettingState = currentHwState;
+                    }
+                    sLastBypassHardwareState = currentHwState;
+                }
+
+                // 4. Manage HyperIsland lifecycle (10s purple auto-hide capsule)
                 boolean bypassActive = (rawBypass > 0 && plugged);
                 if (bypassActive) {
                     if (!sIslandRegistered) {
@@ -491,10 +603,8 @@ public class BypassIslandDaemon {
                     hideIsland();
                 }
 
-                if (sDecimalAnimCount > 0) {
-                    sleepMs = 500L;
-                } else if (plugged || bypassActive) {
-                    sleepMs = 1200L;
+                if (plugged || bypassActive) {
+                    sleepMs = 1000L;
                 }
             } catch (Throwable t) {
                 System.err.println("[BypassDaemon] Exception: " + t.getMessage());

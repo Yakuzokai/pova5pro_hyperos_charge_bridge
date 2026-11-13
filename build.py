@@ -2,12 +2,12 @@ import os
 import zipfile
 
 MODULE_ID = "pova5pro_hyperos_charge_bridge"
-ZIP_NAME = "LH8n_HyperOS_Charging_Bridge_Module_v1.3.2.zip"
+ZIP_NAME = "LH8n_HyperOS_Charging_Bridge_Module_v1.4.0.zip"
 
 def build():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     os.chdir(script_dir)
-    exclude = {".git", ".gitignore", ".gitattributes", "README.md", "build.py", "src", ZIP_NAME}
+    exclude = {".git", ".gitignore", ".gitattributes", "README.md", "build.py", "src", "bin", ZIP_NAME}
 
     with zipfile.ZipFile(ZIP_NAME, "w", compression=zipfile.ZIP_DEFLATED) as z:
         for root, dirs, files in os.walk("."):
